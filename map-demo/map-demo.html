@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SVG Game Map Demo</title>
+    <style>
+        body { text-align: center; font-family: Arial, sans-serif; }
+        svg { border: 1px solid black; background-color: #eee; cursor: pointer; }
+        #info { margin-top: 10px; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <h2>SVG Game Map Demo</h2>
+    <svg id="gameMap" width="1024" height="1024" viewBox="0 0 1024 1024"></svg>
+    <p id="info">Hover over a tile to see info.</p>
+    <input id="keyCapture" type="text" placeholder="Click here & use arrow keys" style="width: 100%; margin-top: 10px;">
+
+    <script>
+        const mapWidth = 64, mapHeight = 64, tileSize = 16;
+        let playerX = 4, playerY = 4;
+        let scale = 1.0, offsetX = 0, offsetY = 0;
+
+        const colors = ["green", "blue", "gray"];
+        const tiles = []; // Store tile data
+        const mapSVG = document.getElementById("gameMap");
+        const info = document.getElementById("info");
+
+        // Generate tiles
+        for (let y = 0; y < mapHeight; y++) {
+            tiles[y] = [];
+            for (let x = 0; x < mapWidth; x++) {
+                const tileType = colors[Math.floor(Math.random() * colors.length)];
+                tiles[y][x] = tileType;
+
+                let rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+                rect.setAttribute("x", x * tileSize);
+                rect.setAttribute("y", y * tileSize);
+                rect.setAttribute("width", tileSize);
+                rect.setAttribute("height", tileSize);
+                rect.setAttribute("fill", tileType);
+                //rect.setAttribute("stroke", "black");
+                //rect.setAttribute("stroke-width", "1");
+
+                rect.addEventListener("mouseover", () => {
+                    info.textContent = `Tile (${x}, ${y}): Type ${tileType}`;
+                });
+
+                rect.addEventListener("click", () => {
+                    info.textContent = `Clicked Tile (${x}, ${y})!`;
+                });
+
+                mapSVG.appendChild(rect);
+            }
+        }
+
+        // Create player
+        const player = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        player.setAttribute("r", tileSize / 3);
+        player.setAttribute("fill", "red");
+        mapSVG.appendChild(player);
+        updatePlayer();
+
+        // Move Player
+        function movePlayer() {
+            if (keysPressed["ArrowUp"] && !keysPressed["ArrowDown"] && playerY > 0) {
+                playerY--;
+            } else if (keysPressed["ArrowDown"] && !keysPressed["ArrowUp"] && playerY < mapHeight - 1) {
+                playerY++;
+            } else if (keysPressed["ArrowLeft"] && !keysPressed["ArrowRight"] && playerX > 0) {
+                playerX--;
+            } else if (keysPressed["ArrowRight"] && !keysPressed["ArrowLeft"] && playerX < mapWidth - 1) {
+                playerX++;
+            }
+            updatePlayer();
+        }
+
+        function updatePlayer() {
+            player.setAttribute("cx", playerX * tileSize + tileSize / 2);
+            player.setAttribute("cy", playerY * tileSize + tileSize / 2);
+        }
+
+        // Track pressed keys
+        const keysPressed = {};
+        let moveInterval;
+
+        // Keyboard Input
+        document.getElementById("keyCapture").addEventListener("keydown", (event) => {
+            keysPressed[event.key] = true;
+            if (!event.repeat && !moveInterval) {
+                movePlayer();
+                moveInterval = setInterval(movePlayer, 200);
+            }
+        });
+
+        document.getElementById("keyCapture").addEventListener("keyup", (event) => {
+            keysPressed[event.key] = false;
+            if (!Object.values(keysPressed).includes(true)) {
+                clearInterval(moveInterval);
+                moveInterval = null;
+            }
+        });
+
+        // Mouse Wheel Zoom
+        mapSVG.addEventListener("wheel", (event) => {
+            event.preventDefault();
+            
+            // Current viewBox dimensions based on the global scale.
+            let currentWidth = 1024 / scale;
+            let currentHeight = 1024 / scale;
+            
+            // Convert mouse coordinates to SVG (world) coordinates.
+            const pt = mapSVG.createSVGPoint();
+            pt.x = event.clientX;
+            pt.y = event.clientY;
+            const svgP = pt.matrixTransform(mapSVG.getScreenCTM().inverse());
+            let mouseX = svgP.x, mouseY = svgP.y;
+            
+            // Determine the mouse's relative position in the current viewBox.
+            let relX = (mouseX - offsetX) / currentWidth;
+            let relY = (mouseY - offsetY) / currentHeight;
+            
+            // Calculate the new scale based on wheel delta.
+            let zoomFactor = event.deltaY < 0 ? 1.1 : 1 / 1.1;
+            let newScale = scale * zoomFactor;
+            newScale = Math.max(1, Math.min(newScale, 4)); // Clamp scale between 1 and 4.
+            
+            // Determine the new viewBox dimensions.
+            let newWidth = 1024 / newScale;
+            let newHeight = 1024 / newScale;
+            
+            // Adjust offsets so that the mouse position remains at the same relative position.
+            let newOffsetX = mouseX - relX * newWidth;
+            let newOffsetY = mouseY - relY * newHeight;
+            
+            // Clamp the offsets so the viewBox stays within the 1024x1024 map boundaries.
+            newOffsetX = Math.max(0, Math.min(newOffsetX, 1024 - newWidth));
+            newOffsetY = Math.max(0, Math.min(newOffsetY, 1024 - newHeight));
+            
+            // Update globals.
+            scale = newScale;
+            offsetX = newOffsetX;
+            offsetY = newOffsetY;
+            
+            // Update the SVG viewBox.
+            mapSVG.setAttribute("viewBox", `${offsetX} ${offsetY} ${newWidth} ${newHeight}`);
+        });
+
+    </script>
+
+</body>
+</html>
