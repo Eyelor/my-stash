@@ -71,6 +71,7 @@
     svg {
       background-color: #eee;
       border: 2px solid #000;
+      cursor: grab;
     }
     #tooltip {
       position: absolute;
@@ -113,6 +114,10 @@
     const minimapPlayer = document.createElementNS("http://www.w3.org/2000/svg", "circle");
     const fullMapPlayer = document.createElementNS("http://www.w3.org/2000/svg", "circle");
 
+    let isDragging = false;
+    let dragStart = { x: 0, y: 0 };
+    let dragOffsetStart = { x: 0, y: 0 };
+
     function showTooltip(event, text) {
       tooltip.style.left = `${event.pageX + 10}px`;
       tooltip.style.top = `${event.pageY + 10}px`;
@@ -139,12 +144,17 @@
 
           if (!isMini) {
             rect.addEventListener("mouseover", (e) => {
+              if (isDragging) return;
               showTooltip(e, `Tile (${x}, ${y}): Type ${tiles[y][x]}`);
             });
             rect.addEventListener("mousemove", (e) => {
+              if (isDragging) return;
               showTooltip(e, `Tile (${x}, ${y}): Type ${tiles[y][x]}`);
             });
-            rect.addEventListener("mouseout", hideTooltip);
+            rect.addEventListener("mouseout", (e) => {
+              if (isDragging) return;
+              hideTooltip();
+            });
           }
 
           svgEl.appendChild(rect);
@@ -153,83 +163,76 @@
     }
 
     function updatePlayer() {
-        const cx = playerX * tileSize + tileSize / 2;
-        const cy = playerY * tileSize + tileSize / 2;
-        fullMapPlayer.setAttribute("cx", cx);
-        fullMapPlayer.setAttribute("cy", cy);
-        minimapPlayer.setAttribute("cx", cx);
-        minimapPlayer.setAttribute("cy", cy);
+      const cx = playerX * tileSize + tileSize / 2;
+      const cy = playerY * tileSize + tileSize / 2;
+      fullMapPlayer.setAttribute("cx", cx);
+      fullMapPlayer.setAttribute("cy", cy);
+      minimapPlayer.setAttribute("cx", cx);
+      minimapPlayer.setAttribute("cy", cy);
 
-        // Auto-scroll map if near edge
-        const viewWidth = 512 / scale;
-        const viewHeight = 512 / scale;
+      const viewWidth = 512 / scale;
+      const viewHeight = 512 / scale;
+      const borderThreshold = 4 * tileSize;
 
-        const borderThreshold = 4 * tileSize;
+      if ((cx - offsetX) > viewWidth - borderThreshold && offsetX + viewWidth < 512)
+        offsetX = Math.min(offsetX + tileSize, 512 - viewWidth);
+      if ((cx - offsetX) < borderThreshold && offsetX > 0)
+        offsetX = Math.max(offsetX - tileSize, 0);
+      if ((cy - offsetY) > viewHeight - borderThreshold && offsetY + viewHeight < 512)
+        offsetY = Math.min(offsetY + tileSize, 512 - viewHeight);
+      if ((cy - offsetY) < borderThreshold && offsetY > 0)
+        offsetY = Math.max(offsetY - tileSize, 0);
 
-        // Right edge
-        if ((cx - offsetX) > viewWidth - borderThreshold && offsetX + viewWidth < 512) {
-            offsetX = Math.min(offsetX + tileSize, 512 - viewWidth);
-        }
-
-        // Left edge
-        if ((cx - offsetX) < borderThreshold && offsetX > 0) {
-            offsetX = Math.max(offsetX - tileSize, 0);
-        }
-
-        // Bottom edge
-        if ((cy - offsetY) > viewHeight - borderThreshold && offsetY + viewHeight < 512) {
-            offsetY = Math.min(offsetY + tileSize, 512 - viewHeight);
-        }
-
-        // Top edge
-        if ((cy - offsetY) < borderThreshold && offsetY > 0) {
-            offsetY = Math.max(offsetY - tileSize, 0);
-        }
-
-        mapSVG.setAttribute("viewBox", `${offsetX} ${offsetY} ${viewWidth} ${viewHeight}`);
+      mapSVG.setAttribute("viewBox", `${offsetX} ${offsetY} ${viewWidth} ${viewHeight}`);
     }
 
     function movePlayer() {
-        // Check if player is currently visible
-        const viewWidth = 512 / scale;
-        const viewHeight = 512 / scale;
-        const cx = playerX * tileSize + tileSize / 2;
-        const cy = playerY * tileSize + tileSize / 2;
+      const viewWidth = 512 / scale;
+      const viewHeight = 512 / scale;
+      const cx = playerX * tileSize + tileSize / 2;
+      const cy = playerY * tileSize + tileSize / 2;
 
-        const isVisible =
-            cx >= offsetX &&
-            cx <= offsetX + viewWidth &&
-            cy >= offsetY &&
-            cy <= offsetY + viewHeight;
+      const isVisible = cx >= offsetX && cx <= offsetX + viewWidth && cy >= offsetY && cy <= offsetY + viewHeight;
 
-        // If not visible, center map on player
-        if (!isVisible) {
-            offsetX = Math.max(0, Math.min(cx - viewWidth / 2, 512 - viewWidth));
-            offsetY = Math.max(0, Math.min(cy - viewHeight / 2, 512 - viewHeight));
-            mapSVG.setAttribute("viewBox", `${offsetX} ${offsetY} ${viewWidth} ${viewHeight}`);
-        }
+      if (!isVisible) {
+        offsetX = Math.max(0, Math.min(cx - viewWidth / 2, 512 - viewWidth));
+        offsetY = Math.max(0, Math.min(cy - viewHeight / 2, 512 - viewHeight));
+        mapSVG.setAttribute("viewBox", `${offsetX} ${offsetY} ${viewWidth} ${viewHeight}`);
+      }
 
-        // Movement logic
-        if (keysPressed["ArrowUp"] && playerY > 0) playerY--;
-        else if (keysPressed["ArrowDown"] && playerY < mapHeight - 1) playerY++;
-        else if (keysPressed["ArrowLeft"] && playerX > 0) playerX--;
-        else if (keysPressed["ArrowRight"] && playerX < mapWidth - 1) playerX++;
+      if (keysPressed["ArrowUp"] && playerY > 0) playerY--;
+      else if (keysPressed["ArrowDown"] && playerY < mapHeight - 1) playerY++;
+      else if (keysPressed["ArrowLeft"] && playerX > 0) playerX--;
+      else if (keysPressed["ArrowRight"] && playerX < mapWidth - 1) playerX++;
 
-        updatePlayer();
+      updatePlayer();
     }
 
-    // Setup minimap
-    createTiles(minimap, true);
-    minimapPlayer.setAttribute("r", tileSize / 2);
-    minimapPlayer.setAttribute("fill", "red");
-    minimap.appendChild(minimapPlayer);
+    // Drag-to-pan logic
+    mapSVG.addEventListener("mousedown", (e) => {
+      isDragging = true;
+      mapSVG.style.cursor = "grabbing";
+      dragStart.x = e.clientX;
+      dragStart.y = e.clientY;
+      dragOffsetStart.x = offsetX;
+      dragOffsetStart.y = offsetY;
+    });
 
-    // Full map
-    createTiles(mapSVG);
-    fullMapPlayer.setAttribute("r", tileSize / 3);
-    fullMapPlayer.setAttribute("fill", "red");
-    mapSVG.appendChild(fullMapPlayer);
-    updatePlayer();
+    window.addEventListener("mousemove", (e) => {
+      if (!isDragging) return;
+      const dx = (e.clientX - dragStart.x) / scale;
+      const dy = (e.clientY - dragStart.y) / scale;
+
+      offsetX = Math.max(0, Math.min(dragOffsetStart.x - dx, 512 - 512 / scale));
+      offsetY = Math.max(0, Math.min(dragOffsetStart.y - dy, 512 - 512 / scale));
+
+      mapSVG.setAttribute("viewBox", `${offsetX} ${offsetY} ${512 / scale} ${512 / scale}`);
+    });
+
+    window.addEventListener("mouseup", () => {
+      isDragging = false;
+      mapSVG.style.cursor = "grab";
+    });
 
     // Zooming
     mapSVG.addEventListener("wheel", (event) => {
@@ -266,7 +269,19 @@
       mapSVG.setAttribute("viewBox", `${offsetX} ${offsetY} ${newWidth} ${newHeight}`);
     });
 
-    // Open and close map
+    // Setup minimap and map
+    createTiles(minimap, true);
+    minimapPlayer.setAttribute("r", tileSize / 2);
+    minimapPlayer.setAttribute("fill", "red");
+    minimap.appendChild(minimapPlayer);
+
+    createTiles(mapSVG);
+    fullMapPlayer.setAttribute("r", tileSize / 3);
+    fullMapPlayer.setAttribute("fill", "red");
+    mapSVG.appendChild(fullMapPlayer);
+    updatePlayer();
+
+    // Open and close
     document.getElementById("infoBtn").addEventListener("click", () => {
       overlay.style.display = "flex";
       startMovement();
@@ -278,14 +293,26 @@
     });
 
     // Movement
+    function handleFocusLoss() {
+      keysPressed = {};
+      clearInterval(moveInterval);
+      moveInterval = null;
+    }
+
     function startMovement() {
       document.addEventListener("keydown", keyDown);
       document.addEventListener("keyup", keyUp);
+      document.addEventListener("visibilitychange", handleFocusLoss);
+      document.addEventListener("contextmenu", handleFocusLoss);
+      window.addEventListener("blur", handleFocusLoss);
     }
 
     function stopMovement() {
       document.removeEventListener("keydown", keyDown);
       document.removeEventListener("keyup", keyUp);
+      document.removeEventListener("visibilitychange", handleFocusLoss);
+      document.removeEventListener("contextmenu", handleFocusLoss);
+      window.removeEventListener("blur", handleFocusLoss);
       keysPressed = {};
       clearInterval(moveInterval);
       moveInterval = null;
