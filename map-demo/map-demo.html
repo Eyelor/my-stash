@@ -109,6 +109,10 @@
     const tooltip = document.getElementById("tooltip");
     const overlay = document.getElementById("mapOverlay");
     let keysPressed = {}, moveInterval;
+    let isDragging = false;
+    let lastMouseX = 0, lastMouseY = 0;
+    let isScrolling = false;
+    let isMovementActive = false;
 
     const minimapPlayer = document.createElementNS("http://www.w3.org/2000/svg", "circle");
     const fullMapPlayer = document.createElementNS("http://www.w3.org/2000/svg", "circle");
@@ -155,67 +159,64 @@
     function updatePlayer() {
         const cx = playerX * tileSize + tileSize / 2;
         const cy = playerY * tileSize + tileSize / 2;
+        
         fullMapPlayer.setAttribute("cx", cx);
         fullMapPlayer.setAttribute("cy", cy);
         minimapPlayer.setAttribute("cx", cx);
         minimapPlayer.setAttribute("cy", cy);
 
-        // Auto-scroll map if near edge
-        const viewWidth = 512 / scale;
-        const viewHeight = 512 / scale;
-
-        const borderThreshold = 4 * tileSize;
-
-        // Right edge
-        if ((cx - offsetX) > viewWidth - borderThreshold && offsetX + viewWidth < 512) {
-            offsetX = Math.min(offsetX + tileSize, 512 - viewWidth);
+        // Przewijaj widok tylko gdy gracz jest blisko krawędzi
+        if (Object.values(keysPressed).includes(true)) {
+            const viewWidth = 512 / scale;
+            const viewHeight = 512 / scale;
+            
+            const borderThreshold = viewWidth * 0.3; // 30% szerokości widoku
+            
+            // Prawa krawędź
+            if (cx - offsetX > viewWidth - borderThreshold && offsetX + viewWidth < 512) {
+                offsetX = Math.min(offsetX + tileSize, 512 - viewWidth);
+            }
+            // Lewa krawędź
+            else if (cx - offsetX < borderThreshold && offsetX > 0) {
+                offsetX = Math.max(offsetX - tileSize, 0);
+            }
+            
+            // Dolna krawędź
+            if (cy - offsetY > viewHeight - borderThreshold && offsetY + viewHeight < 512) {
+                offsetY = Math.min(offsetY + tileSize, 512 - viewHeight);
+            }
+            // Górna krawędź
+            else if (cy - offsetY < borderThreshold && offsetY > 0) {
+                offsetY = Math.max(offsetY - tileSize, 0);
+            }
+            
+            mapSVG.setAttribute("viewBox", `${offsetX} ${offsetY} ${viewWidth} ${viewHeight}`);
         }
-
-        // Left edge
-        if ((cx - offsetX) < borderThreshold && offsetX > 0) {
-            offsetX = Math.max(offsetX - tileSize, 0);
-        }
-
-        // Bottom edge
-        if ((cy - offsetY) > viewHeight - borderThreshold && offsetY + viewHeight < 512) {
-            offsetY = Math.min(offsetY + tileSize, 512 - viewHeight);
-        }
-
-        // Top edge
-        if ((cy - offsetY) < borderThreshold && offsetY > 0) {
-            offsetY = Math.max(offsetY - tileSize, 0);
-        }
-
-        mapSVG.setAttribute("viewBox", `${offsetX} ${offsetY} ${viewWidth} ${viewHeight}`);
     }
 
     function movePlayer() {
-        // Check if player is currently visible
-        const viewWidth = 512 / scale;
-        const viewHeight = 512 / scale;
-        const cx = playerX * tileSize + tileSize / 2;
-        const cy = playerY * tileSize + tileSize / 2;
-
-        const isVisible =
-            cx >= offsetX &&
-            cx <= offsetX + viewWidth &&
-            cy >= offsetY &&
-            cy <= offsetY + viewHeight;
-
-        // If not visible, center map on player
-        if (!isVisible) {
-            offsetX = Math.max(0, Math.min(cx - viewWidth / 2, 512 - viewWidth));
-            offsetY = Math.max(0, Math.min(cy - viewHeight / 2, 512 - viewHeight));
-            mapSVG.setAttribute("viewBox", `${offsetX} ${offsetY} ${viewWidth} ${viewHeight}`);
+        // Movement logic
+        let moved = false;
+        if (keysPressed["ArrowUp"] && playerY > 0) {
+            playerY--;
+            moved = true;
+        }
+        else if (keysPressed["ArrowDown"] && playerY < mapHeight - 1) {
+            playerY++;
+            moved = true;
+        }
+        else if (keysPressed["ArrowLeft"] && playerX > 0) {
+            playerX--;
+            moved = true;
+        }
+        else if (keysPressed["ArrowRight"] && playerX < mapWidth - 1) {
+            playerX++;
+            moved = true;
         }
 
-        // Movement logic
-        if (keysPressed["ArrowUp"] && playerY > 0) playerY--;
-        else if (keysPressed["ArrowDown"] && playerY < mapHeight - 1) playerY++;
-        else if (keysPressed["ArrowLeft"] && playerX > 0) playerX--;
-        else if (keysPressed["ArrowRight"] && playerX < mapWidth - 1) playerX++;
-
-        updatePlayer();
+        if (moved) {
+            updatePlayer();
+        }
     }
 
     // Setup minimap
@@ -266,6 +267,74 @@
       mapSVG.setAttribute("viewBox", `${offsetX} ${offsetY} ${newWidth} ${newHeight}`);
     });
 
+    // Map dragging
+    mapSVG.addEventListener("mousedown", (event) => {
+      if (event.button === 0) { // Left mouse button
+        isDragging = true;
+        lastMouseX = event.clientX;
+        lastMouseY = event.clientY;
+        mapSVG.style.cursor = "grabbing";
+        isScrolling = false;
+      }
+    });
+
+    document.addEventListener("mousemove", (event) => {
+      if (isDragging) {
+        const dx = event.clientX - lastMouseX;
+        const dy = event.clientY - lastMouseY;
+        
+        const viewWidth = 512 / scale;
+        const viewHeight = 512 / scale;
+        
+        offsetX = Math.max(0, Math.min(offsetX - dx, 512 - viewWidth));
+        offsetY = Math.max(0, Math.min(offsetY - dy, 512 - viewHeight));
+        
+        mapSVG.setAttribute("viewBox", `${offsetX} ${offsetY} ${viewWidth} ${viewHeight}`);
+        
+        lastMouseX = event.clientX;
+        lastMouseY = event.clientY;
+      } else if (!isScrolling) {
+        const rect = mapSVG.getBoundingClientRect();
+        const mouseX = event.clientX - rect.left;
+        const mouseY = event.clientY - rect.top;
+        
+        const viewWidth = 512 / scale;
+        const viewHeight = 512 / scale;
+        
+        const borderThreshold = 50;
+        
+        if (mouseX < borderThreshold || mouseX > rect.width - borderThreshold ||
+            mouseY < borderThreshold || mouseY > rect.height - borderThreshold) {
+          isScrolling = true;
+          
+          if (mouseX < borderThreshold) {
+            offsetX = Math.max(0, offsetX - 5);
+          } else if (mouseX > rect.width - borderThreshold) {
+            offsetX = Math.min(512 - viewWidth, offsetX + 5);
+          }
+          
+          if (mouseY < borderThreshold) {
+            offsetY = Math.max(0, offsetY - 5);
+          } else if (mouseY > rect.height - borderThreshold) {
+            offsetY = Math.min(512 - viewHeight, offsetY + 5);
+          }
+          
+          mapSVG.setAttribute("viewBox", `${offsetX} ${offsetY} ${viewWidth} ${viewHeight}`);
+        }
+      }
+    });
+
+    document.addEventListener("mouseup", () => {
+      if (isDragging) {
+        isDragging = false;
+        mapSVG.style.cursor = "grab";
+      }
+      isScrolling = false;
+    });
+
+    // Set initial cursor style
+    mapSVG.style.cursor = "grab";
+
     // Open and close map
     document.getElementById("infoBtn").addEventListener("click", () => {
       overlay.style.display = "flex";
@@ -279,30 +348,82 @@
 
     // Movement
     function startMovement() {
-      document.addEventListener("keydown", keyDown);
-      document.addEventListener("keyup", keyUp);
+      if (!isMovementActive) {
+        document.addEventListener("keydown", keyDown);
+        document.addEventListener("keyup", keyUp);
+        isMovementActive = true;
+      }
     }
 
     function stopMovement() {
-      document.removeEventListener("keydown", keyDown);
-      document.removeEventListener("keyup", keyUp);
-      keysPressed = {};
-      clearInterval(moveInterval);
-      moveInterval = null;
+      if (isMovementActive) {
+        document.removeEventListener("keydown", keyDown);
+        document.removeEventListener("keyup", keyUp);
+        keysPressed = {};
+        if (moveInterval) {
+          clearInterval(moveInterval);
+          moveInterval = null;
+        }
+        isMovementActive = false;
+      }
     }
 
+    // Dodaj obsługę zmiany widoczności strony
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) {
+        stopMovement();
+      } else if (overlay.style.display === "flex") {
+        startMovement();
+      }
+    });
+
+    // Dodaj obsługę utraty fokusu okna
+    window.addEventListener("blur", () => {
+      stopMovement();
+    });
+
+    // Dodaj obsługę powrotu fokusu
+    window.addEventListener("focus", () => {
+      if (overlay.style.display === "flex") {
+        startMovement();
+      }
+    });
+
     function keyDown(event) {
-      keysPressed[event.key] = true;
-      if (!event.repeat && !moveInterval) {
-        movePlayer();
-        moveInterval = setInterval(movePlayer, 200);
+      if (!event.repeat) {
+        keysPressed[event.key] = true;
+        
+        // Sprawdź czy postać jest poza widokiem
+        const cx = playerX * tileSize + tileSize / 2;
+        const cy = playerY * tileSize + tileSize / 2;
+        const viewWidth = 512 / scale;
+        const viewHeight = 512 / scale;
+        
+        const isVisible = 
+          cx >= offsetX && 
+          cx <= offsetX + viewWidth && 
+          cy >= offsetY && 
+          cy <= offsetY + viewHeight;
+        
+        // Centruj widok tylko gdy postać jest poza widokiem
+        if (!isVisible) {
+          offsetX = Math.max(0, Math.min(cx - viewWidth / 2, 512 - viewWidth));
+          offsetY = Math.max(0, Math.min(cy - viewHeight / 2, 512 - viewHeight));
+          
+          mapSVG.setAttribute("viewBox", `${offsetX} ${offsetY} ${viewWidth} ${viewHeight}`);
+        }
+        
+        if (!moveInterval) {
+          movePlayer();
+          moveInterval = setInterval(movePlayer, 200);
+        }
       }
     }
 
     function keyUp(event) {
       keysPressed[event.key] = false;
       if (!Object.values(keysPressed).includes(true)) {
-        clearInterval(moveInterval);
+        clearInterval(moveInterval); 
         moveInterval = null;
       }
     }

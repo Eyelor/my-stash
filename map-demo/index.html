@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SVG Game Map with Minimap</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="minimapContainer">
+    <svg id="minimap" viewBox="0 0 512 512"></svg>
+  </div>
+  <div id="infoBtn">i</div>
+  <div id="mapOverlay">
+    <div id="fullMapWrapper">
+      <div id="closeBtn">X</div>
+      <svg id="gameMap" width="512" height="512" viewBox="0 0 512 512"></svg>
+    </div>
+  </div>
+  <div id="tooltip"></div>
+
+  <script src="gameMap.js"></script>
+  <script>
+    // Czekamy na załadowanie DOM
+    document.addEventListener('DOMContentLoaded', () => {
+      const game = new GameMap();
+      game.init();
+    });
+  </script>
+</body>
+</html> 
