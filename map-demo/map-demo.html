@@ -1,153 +1,311 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SVG Game Map Demo</title>
-    <style>
-        body { text-align: center; font-family: Arial, sans-serif; }
-        svg { border: 1px solid black; background-color: #eee; cursor: pointer; }
-        #info { margin-top: 10px; font-weight: bold; }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SVG Game Map with Minimap</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      overflow: hidden;
+    }
+    #minimapContainer {
+      position: fixed;
+      bottom: 10px;
+      right: 10px;
+      border: 2px solid #000;
+      width: 256px;
+      height: 256px;
+      z-index: 10;
+      background: #fff;
+    }
+    #minimap {
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+    #infoBtn {
+      position: fixed;
+      bottom: 275px;
+      right: 10px;
+      background: #fff;
+      border: 1px solid #000;
+      border-radius: 50%;
+      width: 20px;
+      height: 20px;
+      font-weight: bold;
+      cursor: pointer;
+      z-index: 10;
+      text-align: center;
+    }
+    #mapOverlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0,0,0,0.75);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 100;
+    }
+    #fullMapWrapper {
+      position: relative;
+    }
+    #closeBtn {
+      position: absolute;
+      top: -30px;
+      right: -30px;
+      background: #fff;
+      border: 1px solid #000;
+      border-radius: 50%;
+      width: 30px;
+      height: 30px;
+      text-align: center;
+      line-height: 30px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    svg {
+      background-color: #eee;
+      border: 2px solid #000;
+    }
+    #tooltip {
+      position: absolute;
+      background: rgba(0, 0, 0, 0.75);
+      color: white;
+      padding: 5px;
+      border-radius: 5px;
+      font-size: 12px;
+      pointer-events: none;
+      display: none;
+      z-index: 999;
+    }
+  </style>
 </head>
 <body>
+  <div id="minimapContainer">
+    <svg id="minimap" viewBox="0 0 512 512"></svg>
+  </div>
+  <div id="infoBtn">i</div>
+  <div id="mapOverlay">
+    <div id="fullMapWrapper">
+      <div id="closeBtn">X</div>
+      <svg id="gameMap" width="512" height="512" viewBox="0 0 512 512"></svg>
+    </div>
+  </div>
+  <div id="tooltip"></div>
 
-    <h2>SVG Game Map Demo</h2>
-    <svg id="gameMap" width="1024" height="1024" viewBox="0 0 1024 1024"></svg>
-    <p id="info">Hover over a tile to see info.</p>
-    <input id="keyCapture" type="text" placeholder="Click here & use arrow keys" style="width: 100%; margin-top: 10px;">
+  <script>
+    const mapWidth = 64, mapHeight = 64, tileSize = 8;
+    let playerX = 4, playerY = 4;
+    let scale = 1.0, offsetX = 0, offsetY = 0;
+    const colors = ["green", "blue", "gray"];
+    const tiles = [];
+    const mapSVG = document.getElementById("gameMap");
+    const minimap = document.getElementById("minimap");
+    const tooltip = document.getElementById("tooltip");
+    const overlay = document.getElementById("mapOverlay");
+    let keysPressed = {}, moveInterval;
 
-    <script>
-        const mapWidth = 64, mapHeight = 64, tileSize = 16;
-        let playerX = 4, playerY = 4;
-        let scale = 1.0, offsetX = 0, offsetY = 0;
+    const minimapPlayer = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    const fullMapPlayer = document.createElementNS("http://www.w3.org/2000/svg", "circle");
 
-        const colors = ["green", "blue", "gray"];
-        const tiles = []; // Store tile data
-        const mapSVG = document.getElementById("gameMap");
-        const info = document.getElementById("info");
+    function showTooltip(event, text) {
+      tooltip.style.left = `${event.pageX + 10}px`;
+      tooltip.style.top = `${event.pageY + 10}px`;
+      tooltip.textContent = text;
+      tooltip.style.display = "block";
+    }
 
-        // Generate tiles
-        for (let y = 0; y < mapHeight; y++) {
-            tiles[y] = [];
-            for (let x = 0; x < mapWidth; x++) {
-                const tileType = colors[Math.floor(Math.random() * colors.length)];
-                tiles[y][x] = tileType;
+    function hideTooltip() {
+      tooltip.style.display = "none";
+    }
 
-                let rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-                rect.setAttribute("x", x * tileSize);
-                rect.setAttribute("y", y * tileSize);
-                rect.setAttribute("width", tileSize);
-                rect.setAttribute("height", tileSize);
-                rect.setAttribute("fill", tileType);
-                //rect.setAttribute("stroke", "black");
-                //rect.setAttribute("stroke-width", "1");
+    function createTiles(svgEl, isMini = false) {
+      for (let y = 0; y < mapHeight; y++) {
+        tiles[y] = tiles[y] || [];
+        for (let x = 0; x < mapWidth; x++) {
+          if (!tiles[y][x]) tiles[y][x] = colors[Math.floor(Math.random() * colors.length)];
 
-                rect.addEventListener("mouseover", () => {
-                    info.textContent = `Tile (${x}, ${y}): Type ${tileType}`;
-                });
+          const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+          rect.setAttribute("x", x * tileSize);
+          rect.setAttribute("y", y * tileSize);
+          rect.setAttribute("width", tileSize);
+          rect.setAttribute("height", tileSize);
+          rect.setAttribute("fill", tiles[y][x]);
 
-                rect.addEventListener("click", () => {
-                    info.textContent = `Clicked Tile (${x}, ${y})!`;
-                });
+          if (!isMini) {
+            rect.addEventListener("mouseover", (e) => {
+              showTooltip(e, `Tile (${x}, ${y}): Type ${tiles[y][x]}`);
+            });
+            rect.addEventListener("mousemove", (e) => {
+              showTooltip(e, `Tile (${x}, ${y}): Type ${tiles[y][x]}`);
+            });
+            rect.addEventListener("mouseout", hideTooltip);
+          }
 
-                mapSVG.appendChild(rect);
-            }
+          svgEl.appendChild(rect);
+        }
+      }
+    }
+
+    function updatePlayer() {
+        const cx = playerX * tileSize + tileSize / 2;
+        const cy = playerY * tileSize + tileSize / 2;
+        fullMapPlayer.setAttribute("cx", cx);
+        fullMapPlayer.setAttribute("cy", cy);
+        minimapPlayer.setAttribute("cx", cx);
+        minimapPlayer.setAttribute("cy", cy);
+
+        // Auto-scroll map if near edge
+        const viewWidth = 512 / scale;
+        const viewHeight = 512 / scale;
+
+        const borderThreshold = 4 * tileSize;
+
+        // Right edge
+        if ((cx - offsetX) > viewWidth - borderThreshold && offsetX + viewWidth < 512) {
+            offsetX = Math.min(offsetX + tileSize, 512 - viewWidth);
         }
 
-        // Create player
-        const player = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-        player.setAttribute("r", tileSize / 3);
-        player.setAttribute("fill", "red");
-        mapSVG.appendChild(player);
+        // Left edge
+        if ((cx - offsetX) < borderThreshold && offsetX > 0) {
+            offsetX = Math.max(offsetX - tileSize, 0);
+        }
+
+        // Bottom edge
+        if ((cy - offsetY) > viewHeight - borderThreshold && offsetY + viewHeight < 512) {
+            offsetY = Math.min(offsetY + tileSize, 512 - viewHeight);
+        }
+
+        // Top edge
+        if ((cy - offsetY) < borderThreshold && offsetY > 0) {
+            offsetY = Math.max(offsetY - tileSize, 0);
+        }
+
+        mapSVG.setAttribute("viewBox", `${offsetX} ${offsetY} ${viewWidth} ${viewHeight}`);
+    }
+
+    function movePlayer() {
+        // Check if player is currently visible
+        const viewWidth = 512 / scale;
+        const viewHeight = 512 / scale;
+        const cx = playerX * tileSize + tileSize / 2;
+        const cy = playerY * tileSize + tileSize / 2;
+
+        const isVisible =
+            cx >= offsetX &&
+            cx <= offsetX + viewWidth &&
+            cy >= offsetY &&
+            cy <= offsetY + viewHeight;
+
+        // If not visible, center map on player
+        if (!isVisible) {
+            offsetX = Math.max(0, Math.min(cx - viewWidth / 2, 512 - viewWidth));
+            offsetY = Math.max(0, Math.min(cy - viewHeight / 2, 512 - viewHeight));
+            mapSVG.setAttribute("viewBox", `${offsetX} ${offsetY} ${viewWidth} ${viewHeight}`);
+        }
+
+        // Movement logic
+        if (keysPressed["ArrowUp"] && playerY > 0) playerY--;
+        else if (keysPressed["ArrowDown"] && playerY < mapHeight - 1) playerY++;
+        else if (keysPressed["ArrowLeft"] && playerX > 0) playerX--;
+        else if (keysPressed["ArrowRight"] && playerX < mapWidth - 1) playerX++;
+
         updatePlayer();
+    }
 
-        // Move Player
-        function movePlayer() {
-            if (keysPressed["ArrowUp"] && !keysPressed["ArrowDown"] && playerY > 0) {
-                playerY--;
-            } else if (keysPressed["ArrowDown"] && !keysPressed["ArrowUp"] && playerY < mapHeight - 1) {
-                playerY++;
-            } else if (keysPressed["ArrowLeft"] && !keysPressed["ArrowRight"] && playerX > 0) {
-                playerX--;
-            } else if (keysPressed["ArrowRight"] && !keysPressed["ArrowLeft"] && playerX < mapWidth - 1) {
-                playerX++;
-            }
-            updatePlayer();
-        }
+    // Setup minimap
+    createTiles(minimap, true);
+    minimapPlayer.setAttribute("r", tileSize / 2);
+    minimapPlayer.setAttribute("fill", "red");
+    minimap.appendChild(minimapPlayer);
 
-        function updatePlayer() {
-            player.setAttribute("cx", playerX * tileSize + tileSize / 2);
-            player.setAttribute("cy", playerY * tileSize + tileSize / 2);
-        }
+    // Full map
+    createTiles(mapSVG);
+    fullMapPlayer.setAttribute("r", tileSize / 3);
+    fullMapPlayer.setAttribute("fill", "red");
+    mapSVG.appendChild(fullMapPlayer);
+    updatePlayer();
 
-        // Track pressed keys
-        const keysPressed = {};
-        let moveInterval;
+    // Zooming
+    mapSVG.addEventListener("wheel", (event) => {
+      event.preventDefault();
+      let currentWidth = 512 / scale;
+      let currentHeight = 512 / scale;
 
-        // Keyboard Input
-        document.getElementById("keyCapture").addEventListener("keydown", (event) => {
-            keysPressed[event.key] = true;
-            if (!event.repeat && !moveInterval) {
-                movePlayer();
-                moveInterval = setInterval(movePlayer, 200);
-            }
-        });
+      const pt = mapSVG.createSVGPoint();
+      pt.x = event.clientX;
+      pt.y = event.clientY;
+      const svgP = pt.matrixTransform(mapSVG.getScreenCTM().inverse());
+      const mouseX = svgP.x, mouseY = svgP.y;
 
-        document.getElementById("keyCapture").addEventListener("keyup", (event) => {
-            keysPressed[event.key] = false;
-            if (!Object.values(keysPressed).includes(true)) {
-                clearInterval(moveInterval);
-                moveInterval = null;
-            }
-        });
+      const relX = (mouseX - offsetX) / currentWidth;
+      const relY = (mouseY - offsetY) / currentHeight;
 
-        // Mouse Wheel Zoom
-        mapSVG.addEventListener("wheel", (event) => {
-            event.preventDefault();
-            
-            // Current viewBox dimensions based on the global scale.
-            let currentWidth = 1024 / scale;
-            let currentHeight = 1024 / scale;
-            
-            // Convert mouse coordinates to SVG (world) coordinates.
-            const pt = mapSVG.createSVGPoint();
-            pt.x = event.clientX;
-            pt.y = event.clientY;
-            const svgP = pt.matrixTransform(mapSVG.getScreenCTM().inverse());
-            let mouseX = svgP.x, mouseY = svgP.y;
-            
-            // Determine the mouse's relative position in the current viewBox.
-            let relX = (mouseX - offsetX) / currentWidth;
-            let relY = (mouseY - offsetY) / currentHeight;
-            
-            // Calculate the new scale based on wheel delta.
-            let zoomFactor = event.deltaY < 0 ? 1.1 : 1 / 1.1;
-            let newScale = scale * zoomFactor;
-            newScale = Math.max(1, Math.min(newScale, 4)); // Clamp scale between 1 and 4.
-            
-            // Determine the new viewBox dimensions.
-            let newWidth = 1024 / newScale;
-            let newHeight = 1024 / newScale;
-            
-            // Adjust offsets so that the mouse position remains at the same relative position.
-            let newOffsetX = mouseX - relX * newWidth;
-            let newOffsetY = mouseY - relY * newHeight;
-            
-            // Clamp the offsets so the viewBox stays within the 1024x1024 map boundaries.
-            newOffsetX = Math.max(0, Math.min(newOffsetX, 1024 - newWidth));
-            newOffsetY = Math.max(0, Math.min(newOffsetY, 1024 - newHeight));
-            
-            // Update globals.
-            scale = newScale;
-            offsetX = newOffsetX;
-            offsetY = newOffsetY;
-            
-            // Update the SVG viewBox.
-            mapSVG.setAttribute("viewBox", `${offsetX} ${offsetY} ${newWidth} ${newHeight}`);
-        });
+      const zoomFactor = event.deltaY < 0 ? 1.1 : 1 / 1.1;
+      let newScale = scale * zoomFactor;
+      newScale = Math.max(1, Math.min(newScale, 4));
 
-    </script>
+      let newWidth = 512 / newScale;
+      let newHeight = 512 / newScale;
 
+      let newOffsetX = mouseX - relX * newWidth;
+      let newOffsetY = mouseY - relY * newHeight;
+
+      newOffsetX = Math.max(0, Math.min(newOffsetX, 512 - newWidth));
+      newOffsetY = Math.max(0, Math.min(newOffsetY, 512 - newHeight));
+
+      scale = newScale;
+      offsetX = newOffsetX;
+      offsetY = newOffsetY;
+
+      mapSVG.setAttribute("viewBox", `${offsetX} ${offsetY} ${newWidth} ${newHeight}`);
+    });
+
+    // Open and close map
+    document.getElementById("infoBtn").addEventListener("click", () => {
+      overlay.style.display = "flex";
+      startMovement();
+    });
+
+    document.getElementById("closeBtn").addEventListener("click", () => {
+      overlay.style.display = "none";
+      stopMovement();
+    });
+
+    // Movement
+    function startMovement() {
+      document.addEventListener("keydown", keyDown);
+      document.addEventListener("keyup", keyUp);
+    }
+
+    function stopMovement() {
+      document.removeEventListener("keydown", keyDown);
+      document.removeEventListener("keyup", keyUp);
+      keysPressed = {};
+      clearInterval(moveInterval);
+      moveInterval = null;
+    }
+
+    function keyDown(event) {
+      keysPressed[event.key] = true;
+      if (!event.repeat && !moveInterval) {
+        movePlayer();
+        moveInterval = setInterval(movePlayer, 200);
+      }
+    }
+
+    function keyUp(event) {
+      keysPressed[event.key] = false;
+      if (!Object.values(keysPressed).includes(true)) {
+        clearInterval(moveInterval);
+        moveInterval = null;
+      }
+    }
+  </script>
 </body>
 </html>
